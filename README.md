@@ -4,50 +4,53 @@ Multi-hazard disaster response robot with edge AI seismic and environmental dete
 
 ## Hardware
 
-| Component | Role | I2C Address |
+| Component | Role | Interface |
 |---|---|---|
-| LSM6DSOX (×2) | Seismic acceleration / motion detect | 0x6A / 0x6B |
-| HS3003 | Temperature + humidity | 0x44 |
-| VL53L4CD | Time-of-flight distance | 0x29 |
-| Modulino Pixels | RGB status indicator | 0x6C |
-| Modulino Buzzer | Alert tones | 0x3C |
-| MQ2 | Gas / smoke (via STM32 ADC → IIO sysfs) | — |
+| Modulino Movement | Seismic acceleration / motion detect | MCU Modulino library via Bridge RPC |
+| Modulino Thermo | Temperature + humidity | MCU Modulino library via Bridge RPC |
+| Modulino Distance | Time-of-flight distance | MCU Modulino library via Bridge RPC |
+| Modulino Pixels | RGB status indicator | MCU Modulino library via Bridge RPC |
+| Modulino Buzzer | Alert tones | MCU Modulino library via Bridge RPC |
+| MQ2 | Gas / smoke | MCU `analogRead(A0)` via Bridge RPC |
 | Servo | Physical response actuator (sysfs PWM) | — |
 | Camera | Vision / obstacle detection | — |
 
 **Platform:** Arduino UNO Q — Qualcomm QRB2210 SoC, Debian Linux. Not Raspberry Pi. RPi.GPIO/pigpio do not work here.
 
-Modulino Pixels and Modulino Buzzer are driven through the UNO Q Arduino Bridge RPC path when available. The Linux process sends compact `Bridge.notify()` messages to MCU methods exposed by `arduino/seismoguard_bridge/seismoguard_bridge.ino`; raw I2C remains as a fallback for non-Bridge runs.
+Modulino sensors and indicators are driven from the MCU sketch through the UNO Q Arduino Bridge RPC path. The Linux process keeps the detection, fusion, dashboard, and response logic, while `sketch/sketch.ino` is the only layer that talks to the Modulino library.
 
 ## Software architecture
 
 ```
-seismoguard/
+app.yaml                 # Arduino App Lab app manifest
+python/
+├── main.py              # App Lab Python entry point
+├── app_core.py          # 5 threads + main fusion loop
 ├── config.py            # all tunable constants
-├── hal/                 # Hardware Abstraction Layer
-│   ├── board.py         # Board ABC
-│   ├── board_qrb.py     # QRB2210 (smbus2 + python-periphery)
-│   └── board_mock.py    # in-memory mock for tests
-├── sensors/
-│   ├── seismic.py       # STA/LTA seismic detector
-│   ├── environmental.py # temp, humidity, gas
-│   ├── spatial.py       # ToF distance
-│   └── vision.py        # camera vision loop
-├── fusion/
-│   └── decision.py      # pure make_assessment() fusion function
-├── response/
-│   ├── state_machine.py # ResponseFSM (class 0–3)
-│   └── actuators.py     # pixels, buzzer, servo
-├── dashboard/
-│   └── server.py        # Flask REST API (/api/state, /api/alert)
-├── main.py              # 5 threads + main fusion loop
-└── tests/               # 29 tests, no hardware needed
+├── dashboard.py         # Flask REST API (/api/state, /api/alert)
+├── decision.py          # pure make_assessment() fusion function
+├── seismic.py           # STA/LTA seismic detector
+├── environmental.py     # temp, humidity, gas
+├── spatial.py           # ToF distance
+├── vision.py            # camera vision loop
+├── actuators.py         # pixels, buzzer, servo
+├── state_machine.py     # ResponseFSM (class 0-3)
+├── board*.py            # Hardware Abstraction Layer
+└── requirements.txt     # Linux-side Python dependencies
+sketch/
+├── sketch.ino           # MCU bridge for Modulino sensors/actuators
+└── sketch.yaml          # sketch dependencies
+tests/                   # local tests, not needed by App Lab
 ```
 
-The MCU companion sketch lives in `arduino/seismoguard_bridge/` and registers these Bridge RPC methods:
+The MCU companion sketch lives in `sketch/` and registers these Bridge RPC methods:
 
 | Method | Direction | Purpose |
 |---|---|---|
+| `sensor_env()` | MCU → Linux | Read Modulino Thermo temperature and humidity |
+| `sensor_mq2()` | MCU → Linux | Read MQ2 analog value from `A0` |
+| `sensor_accel()` | MCU → Linux | Read Modulino Movement acceleration and orientation |
+| `sensor_distance()` | MCU → Linux | Read Modulino Distance in millimeters |
 | `pixels_set_all(r, g, b, brightness, count)` | Linux → MCU | Set all Modulino Pixels LEDs |
 | `buzzer_tone(frequency, duration)` | Linux → MCU | Play or silence the Modulino Buzzer |
 | `mcu_status(status)` | MCU → Linux | Report MCU bridge status to the Python log |
@@ -59,29 +62,16 @@ The main loop runs at `MAIN_LOOP_HZ` (config.py), reading shared sensor state up
 ### Dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r python/requirements.txt
 ```
 
-Requires Python 3.10+. On the QRB2210 target, also install system packages:
-
-```bash
-sudo apt install python3-smbus2
-```
-
-### Hardware probe
-
-On first boot, check that all I2C devices are visible:
-
-```bash
-python -m seismoguard  # logs PRESENT/ABSENT for each expected device
-```
-
-Or directly: `i2cdetect -y 1`
+Requires Python 3.10+. In Arduino App Lab, `python/main.py` is the Linux entry point and `sketch/sketch.ino` is the MCU sketch.
 
 ## Running
 
 ```bash
-python -m seismoguard
+cd python
+python main.py
 ```
 
 Dashboard available at `http://<robot-ip>:5000` once running.
@@ -91,7 +81,7 @@ To stop: `Ctrl+C` — clean shutdown of all threads.
 ## Tests
 
 ```bash
-pytest seismoguard/tests/
+pytest tests/
 ```
 
 All 29 tests run on any machine via `BoardMock` — no hardware required.

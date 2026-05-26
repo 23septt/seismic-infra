@@ -1,0 +1,5 @@
+name: SeismoGuard-R
+description: Multi-hazard disaster response robot with edge AI seismic and environmental detection.
+ports:
+  - 5000
+bricks: []

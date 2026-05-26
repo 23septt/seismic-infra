@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+upload.zip
+python/seismoguard/**/__pycache__/
