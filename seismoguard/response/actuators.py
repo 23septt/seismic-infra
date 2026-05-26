@@ -30,6 +30,10 @@ class PixelController:
         self._thread.start()
 
     def _set_all(self, r: int, g: int, b: int, brightness: int = config.PIXEL_BRIGHTNESS) -> None:
+        if self._board.bridge_notify(
+            "pixels_set_all", r, g, b, brightness, config.PIXEL_COUNT
+        ):
+            return
         try:
             payload = bytes([r, g, b, brightness] * config.PIXEL_COUNT)
             self._board.i2c_write_bytes(config.PIXELS_ADDR, 0x00, payload)
@@ -83,6 +87,8 @@ class BuzzerController:
         self._stop    = threading.Event()
 
     def _send(self, freq_hz: int, duration_ms: int) -> None:
+        if self._board.bridge_notify("buzzer_tone", freq_hz, duration_ms):
+            return
         try:
             data = bytes([
                 (freq_hz >> 8) & 0xFF, freq_hz & 0xFF,

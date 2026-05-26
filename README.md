@@ -17,6 +17,8 @@ Multi-hazard disaster response robot with edge AI seismic and environmental dete
 
 **Platform:** Arduino UNO Q — Qualcomm QRB2210 SoC, Debian Linux. Not Raspberry Pi. RPi.GPIO/pigpio do not work here.
 
+Modulino Pixels and Modulino Buzzer are driven through the UNO Q Arduino Bridge RPC path when available. The Linux process sends compact `Bridge.notify()` messages to MCU methods exposed by `arduino/seismoguard_bridge/seismoguard_bridge.ino`; raw I2C remains as a fallback for non-Bridge runs.
+
 ## Software architecture
 
 ```
@@ -41,6 +43,14 @@ seismoguard/
 ├── main.py              # 5 threads + main fusion loop
 └── tests/               # 29 tests, no hardware needed
 ```
+
+The MCU companion sketch lives in `arduino/seismoguard_bridge/` and registers these Bridge RPC methods:
+
+| Method | Direction | Purpose |
+|---|---|---|
+| `pixels_set_all(r, g, b, brightness, count)` | Linux → MCU | Set all Modulino Pixels LEDs |
+| `buzzer_tone(frequency, duration)` | Linux → MCU | Play or silence the Modulino Buzzer |
+| `mcu_status(status)` | MCU → Linux | Report MCU bridge status to the Python log |
 
 The main loop runs at `MAIN_LOOP_HZ` (config.py), reading shared sensor state updated by four daemon threads and calling `make_assessment()` → `ResponseFSM.update()` each tick.
 

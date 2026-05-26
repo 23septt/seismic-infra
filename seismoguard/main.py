@@ -63,6 +63,7 @@ def main() -> None:
     vision_stop  = threading.Event()
 
     board      = _make_board()
+    board.bridge_provide("mcu_status", lambda status: log.info("MCU bridge: %s", status))
     probe_i2c_bus(board)
 
     actuators  = ActuatorController(board)
