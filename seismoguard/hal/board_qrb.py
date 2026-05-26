@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+from typing import Any
 
 import smbus2
 
@@ -21,11 +22,21 @@ class BoardQRB(Board):
     def __init__(self):
         self._bus = smbus2.SMBus(config.I2C_BUS)
         self._i2c_lock = threading.Lock()
+        self._bridge = self._init_bridge()
         self._adc_mode = self._detect_adc_mode()
         self._serial = None
         if self._adc_mode == "serial":
             self._serial = self._open_serial()
         self._pwm_handles: dict[tuple[int, int], object] = {}
+
+    def _init_bridge(self):
+        try:
+            from arduino.app_utils import Bridge
+            log.info("Arduino Bridge API available")
+            return Bridge
+        except Exception as e:
+            log.info("Arduino Bridge API unavailable: %s", e)
+            return None
 
     # ------------------------------------------------------------------
     # I2C
@@ -80,6 +91,38 @@ class BoardQRB(Board):
                 return 0
         else:
             return self._serial_analog_read(channel)
+
+    # ------------------------------------------------------------------
+    # Arduino Bridge RPC
+    # ------------------------------------------------------------------
+
+    def bridge_notify(self, method: str, *args: Any) -> bool:
+        if self._bridge is None:
+            return False
+        try:
+            self._bridge.notify(method, *args)
+            return True
+        except ValueError as e:
+            log.error("Bridge notify too large for %s: %s", method, e)
+            return False
+        except Exception as e:
+            log.debug("Bridge notify failed for %s: %s", method, e)
+            return False
+
+    def bridge_call(self, method: str, *args: Any) -> Any:
+        if self._bridge is None:
+            raise RuntimeError("Arduino Bridge API is not available")
+        return self._bridge.call(method, *args)
+
+    def bridge_provide(self, method: str, callback: Any) -> bool:
+        if self._bridge is None:
+            return False
+        try:
+            self._bridge.provide(method, callback)
+            return True
+        except Exception as e:
+            log.debug("Bridge provide failed for %s: %s", method, e)
+            return False
 
     def _serial_analog_read(self, channel: int) -> int:
         if self._serial is None:

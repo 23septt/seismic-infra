@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class Board(ABC):
@@ -26,6 +27,18 @@ class Board(ABC):
     def read_analog(self, channel: int) -> int:
         """Returns 12-bit ADC value (0–4095)."""
         ...
+
+    def bridge_notify(self, method: str, *args: Any) -> bool:
+        """Send a fire-and-forget Arduino Bridge RPC message if available."""
+        return False
+
+    def bridge_call(self, method: str, *args: Any) -> Any:
+        """Call an Arduino Bridge RPC method if available."""
+        raise NotImplementedError("Arduino Bridge is not available on this board")
+
+    def bridge_provide(self, method: str, callback: Any) -> bool:
+        """Expose a Linux callback to the MCU through Arduino Bridge if available."""
+        return False
 
     @abstractmethod
     def set_pwm(self, chip: int, channel: int, duty_us: float) -> None:

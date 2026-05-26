@@ -17,6 +17,8 @@ Multi-hazard disaster response robot with edge AI seismic and environmental dete
 
 **Platform:** Arduino UNO Q — Qualcomm QRB2210 SoC, Debian Linux. Not Raspberry Pi. RPi.GPIO/pigpio do not work here.
 
+Modulino Pixels and Modulino Buzzer are driven through the UNO Q Arduino Bridge RPC path when available. The Linux process sends compact `Bridge.notify()` messages to MCU methods exposed by `arduino/seismoguard_bridge/seismoguard_bridge.ino`; raw I2C remains as a fallback for non-Bridge runs.
+
 ## Software architecture
 
 ```
@@ -35,12 +37,20 @@ seismoguard/
 │   └── decision.py      # pure make_assessment() fusion function
 ├── response/
 │   ├── state_machine.py # ResponseFSM (class 0–3)
-│   └── actuators.py     # pixels, buzzer, servo, audio
+│   └── actuators.py     # pixels, buzzer, servo
 ├── dashboard/
 │   └── server.py        # Flask REST API (/api/state, /api/alert)
 ├── main.py              # 5 threads + main fusion loop
 └── tests/               # 29 tests, no hardware needed
 ```
+
+The MCU companion sketch lives in `arduino/seismoguard_bridge/` and registers these Bridge RPC methods:
+
+| Method | Direction | Purpose |
+|---|---|---|
+| `pixels_set_all(r, g, b, brightness, count)` | Linux → MCU | Set all Modulino Pixels LEDs |
+| `buzzer_tone(frequency, duration)` | Linux → MCU | Play or silence the Modulino Buzzer |
+| `mcu_status(status)` | MCU → Linux | Report MCU bridge status to the Python log |
 
 The main loop runs at `MAIN_LOOP_HZ` (config.py), reading shared sensor state updated by four daemon threads and calling `make_assessment()` → `ResponseFSM.update()` each tick.
 
@@ -55,19 +65,8 @@ pip install -r requirements.txt
 Requires Python 3.10+. On the QRB2210 target, also install system packages:
 
 ```bash
-sudo apt install python3-smbus2 alsa-utils ffmpeg
+sudo apt install python3-smbus2
 ```
-
-### Audio files (Thai TTS)
-
-Run once on any internet-connected machine before deploying to the robot:
-
-```bash
-pip install gtts
-python scripts/generate_audio.py
-```
-
-This writes `seismoguard/response/audio/class{1,2,3}_*.wav`. Copy the entire `seismoguard/` directory to the robot afterward.
 
 ### Hardware probe
 
@@ -103,8 +102,8 @@ All 29 tests run on any machine via `BoardMock` — no hardware required.
 |---|---|---|
 | 0 | All clear | Pixels off |
 | 1 | Low hazard | Pixels amber, low buzz |
-| 2 | Moderate hazard | Pixels orange, alert buzz, audio |
-| 3 | Severe hazard | Pixels red, alarm buzz, audio, servo |
+| 2 | Moderate hazard | Pixels orange, alert buzz |
+| 3 | Severe hazard | Pixels red, alarm buzz, servo |
 
 ## License
 

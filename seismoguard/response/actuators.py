@@ -1,6 +1,4 @@
 import logging
-import os
-import subprocess
 import threading
 import time
 from typing import Optional
@@ -30,6 +28,10 @@ class PixelController:
         self._thread.start()
 
     def _set_all(self, r: int, g: int, b: int, brightness: int = config.PIXEL_BRIGHTNESS) -> None:
+        if self._board.bridge_notify(
+            "pixels_set_all", r, g, b, brightness, config.PIXEL_COUNT
+        ):
+            return
         try:
             payload = bytes([r, g, b, brightness] * config.PIXEL_COUNT)
             self._board.i2c_write_bytes(config.PIXELS_ADDR, 0x00, payload)
@@ -83,6 +85,8 @@ class BuzzerController:
         self._stop    = threading.Event()
 
     def _send(self, freq_hz: int, duration_ms: int) -> None:
+        if self._board.bridge_notify("buzzer_tone", freq_hz, duration_ms):
+            return
         try:
             data = bytes([
                 (freq_hz >> 8) & 0xFF, freq_hz & 0xFF,
@@ -146,38 +150,6 @@ class ServoController:
             self._set(config.SERVO2_PWM_CHIP, config.SERVO2_PWM_CH, config.SERVO_DEPLOY_US)
 
 
-class AudioController:
-    """Plays pre-recorded WAV files via aplay (non-blocking)."""
-
-    def __init__(self):
-        self._proc: Optional[subprocess.Popen] = None
-
-    def _wav_path(self, alert_class: int) -> Optional[str]:
-        filename = config.AUDIO_FILES.get(alert_class)
-        if not filename:
-            return None
-        return os.path.join(config.AUDIO_DIR, filename)
-
-    def play(self, alert_class: int) -> None:
-        path = self._wav_path(alert_class)
-        if not path or not os.path.exists(path):
-            log.debug("Audio file missing for class %d: %s", alert_class, path)
-            return
-        # Kill previous if still running
-        if self._proc and self._proc.poll() is None:
-            return  # already playing
-        try:
-            self._proc = subprocess.Popen(
-                ['aplay', '-q', path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            log.warning("aplay not found — audio disabled")
-        except Exception as e:
-            log.error("Audio play error: %s", e)
-
-
 class ActuatorController:
     """Facade that coordinates all actuators for a given alert class."""
 
@@ -185,12 +157,9 @@ class ActuatorController:
         self._pixels  = PixelController(board)
         self._buzzer  = BuzzerController(board)
         self._servos  = ServoController(board)
-        self._audio   = AudioController()
 
     def apply(self, alert_class: int) -> None:
         log.info("Actuators → class %d", alert_class)
         self._pixels.apply(alert_class)
         self._buzzer.apply(alert_class)
         self._servos.apply(alert_class)
-        if alert_class > 0:
-            self._audio.play(alert_class)

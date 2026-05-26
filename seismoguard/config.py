@@ -1,5 +1,4 @@
 import math
-import os
 
 # --- Seismic STA/LTA ---
 SEISMIC_RATE_HZ = 50
@@ -81,14 +80,6 @@ SERVO_FREQ_HZ    = 50
 SERIAL_BRIDGE_PORT = "/dev/ttyACM0"
 SERIAL_BRIDGE_BAUD = 115200
 IIO_DEVICE_PATH    = "/sys/bus/iio/devices/iio:device0"
-
-# --- Audio ---
-AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "response", "audio")
-AUDIO_FILES = {
-    1: "class1_warning.wav",
-    2: "class2_evacuate.wav",
-    3: "class3_critical.wav",
-}
 
 # --- Pixels color map (R, G, B) ---
 PIXEL_COLOR = {
