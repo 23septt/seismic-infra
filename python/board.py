@@ -1,8 +1,7 @@
-from abc import ABC, abstractmethod
 from typing import Any
 
 
-class Board(ABC):
+class Board:
     """Hardware abstraction layer — one concrete impl per platform."""
 
     def bridge_notify(self, method: str, *args: Any) -> bool:
@@ -21,11 +20,5 @@ class Board(ABC):
     def bridge_available(self) -> bool:
         return False
 
-    @abstractmethod
-    def set_pwm(self, chip: int, channel: int, duty_us: float) -> None:
-        """Set servo pulse width in microseconds."""
-        ...
-
-    @abstractmethod
     def close(self) -> None:
-        ...
+        pass

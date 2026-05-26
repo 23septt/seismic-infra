@@ -33,7 +33,7 @@ class ResponseFSM:
                          f"{assessment.Mpd:.2f}" if assessment.Mpd else "N/A")
                 self._state          = new_class
                 self._last_trigger_t = now
-                self._actuators.apply(self._state)
+                self._actuators.apply(assessment)
 
             elif new_class < self._state:
                 elapsed = now - self._last_trigger_t
@@ -41,6 +41,6 @@ class ResponseFSM:
                     log.info("FSM %d → %d (cooldown elapsed %.0fs)",
                              self._state, new_class, elapsed)
                     self._state = new_class
-                    self._actuators.apply(self._state)
+                    self._actuators.apply(assessment)
 
             return self._state

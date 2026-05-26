@@ -1,7 +1,6 @@
 """SeismoGuard-R — entry point."""
 
 import logging
-import os
 import platform
 import threading
 import time
@@ -34,15 +33,12 @@ def main() -> None:
     shared_state: dict = {
         "seismic":          None,
         "env":              None,
-        "spatial":          None,
-        "vision":           None,
-        "vision_available": True,
         "assessment":       None,
         "fsm_class":        0,
+        "alert_kind":       "all_clear",
     }
     state_lock   = threading.Lock()
     stop_all     = threading.Event()
-    vision_stop  = threading.Event()
 
     board      = _make_board()
     board.bridge_provide("mcu_status", lambda status: log.info("MCU bridge: %s", status))
@@ -56,24 +52,14 @@ def main() -> None:
     # ---- build sensor objects ----
     from environmental import EnvironmentalSensor
     from seismic import SeismicSensor
-    from spatial import SpatialSensor
-    from vision import vision_loop
 
     seismic_sensor = SeismicSensor(board, shared_state, state_lock, stop_all)
     env_sensor     = EnvironmentalSensor(board, shared_state, state_lock, stop_all)
-    spatial_sensor = SpatialSensor(board, shared_state, state_lock, stop_all)
 
     # ---- launch threads ----
     threads = [
         threading.Thread(target=seismic_sensor.run,  name="seismic",  daemon=True),
         threading.Thread(target=env_sensor.run,      name="env",      daemon=True),
-        threading.Thread(target=spatial_sensor.run,  name="spatial",  daemon=True),
-        threading.Thread(
-            target=vision_loop,
-            args=(shared_state, state_lock, vision_stop),
-            name="vision",
-            daemon=True,
-        ),
     ]
     for t in threads:
         t.start()
@@ -81,28 +67,11 @@ def main() -> None:
 
     dashboard.start()
 
-    # ---- main fusion loop ----
-    try:
-        import psutil
-        proc = psutil.Process(os.getpid())
-        use_psutil = True
-    except ImportError:
-        use_psutil = False
-
     interval = 1.0 / config.MAIN_LOOP_HZ
 
     log.info("SeismoGuard-R running. Press Ctrl+C to stop.")
     try:
         while True:
-            # RAM watchdog
-            if use_psutil and not vision_stop.is_set():
-                rss = proc.memory_info().rss
-                if rss > config.RAM_LIMIT_BYTES:
-                    log.warning("RSS %.2f GB → killing vision thread", rss / 1e9)
-                    vision_stop.set()
-                    with state_lock:
-                        shared_state["vision_available"] = False
-
             with state_lock:
                 s = shared_state["seismic"]
                 e = shared_state["env"]
@@ -113,6 +82,7 @@ def main() -> None:
             with state_lock:
                 shared_state["assessment"] = assessment
                 shared_state["fsm_class"]  = new_class
+                shared_state["alert_kind"] = assessment.alert_kind
 
             time.sleep(interval)
 
@@ -120,7 +90,6 @@ def main() -> None:
         log.info("Shutting down...")
     finally:
         stop_all.set()
-        vision_stop.set()
         board.close()
         log.info("Done.")
 

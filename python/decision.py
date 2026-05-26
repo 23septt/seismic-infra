@@ -10,9 +10,10 @@ from readings import EnvironmentalReading, SeismicReading
 class HazardAssessment:
     timestamp: float
     seismic_class: int
-    env_upgrade: int
+    fire_class: int
     final_class: int
     Mpd: Optional[float]
+    alert_kind: str
     flags: dict = field(default_factory=dict)
 
 
@@ -26,50 +27,53 @@ def make_assessment(
     Mpd           = seismic.Mpd          if seismic is not None else None
 
     flags = {
-        "GAS_CAUTION":    False,
-        "GAS_CRITICAL":   False,
-        "TEMP_ELEVATED":  False,
-        "TEMP_CRITICAL":  False,
-        "HUMID_DROP":     False,
-        "HUMID_CRITICAL": False,
+        "FIRE_TEMP_ELEVATED": False,
+        "FIRE_TEMP_CRITICAL": False,
+        "FIRE_TEMP_RISING_FAST": False,
+        "FIRE_HUMIDITY_DROPPING": False,
     }
 
-    if env is not None and env.mq2_status == "OK":
-        gas_b   = env.gas_baseline   or 0.0
-        temp_b  = env.temp_baseline  or env.temperature_c
+    fire_class = 0
+    if env is not None and env.status != "UNAVAILABLE":
+        temp_b = env.temp_baseline or env.temperature_c
         humid_b = env.humid_baseline or env.humidity_pct
+        temp_delta = env.temperature_c - temp_b
+        humid_delta = env.humidity_pct - humid_b
 
-        gas_delta   = (env.gas_ppm or 0.0) - gas_b
-        temp_delta  = env.temperature_c - temp_b
-        humid_delta = env.humidity_pct  - humid_b
+        flags["FIRE_TEMP_ELEVATED"] = (
+            env.temperature_c >= config.FIRE_TEMP_ELEVATED_C
+            or temp_delta >= config.FIRE_TEMP_ELEVATED_DELTA
+        )
+        flags["FIRE_TEMP_CRITICAL"] = (
+            env.temperature_c >= config.FIRE_TEMP_CRITICAL_C
+            or temp_delta >= config.FIRE_TEMP_CRITICAL_DELTA
+        )
+        flags["FIRE_TEMP_RISING_FAST"] = temp_delta >= config.FIRE_TEMP_CRITICAL_DELTA
+        flags["FIRE_HUMIDITY_DROPPING"] = humid_delta <= config.FIRE_HUMID_DROP_DELTA
 
-        flags["GAS_CAUTION"]    = gas_delta   >= config.GAS_CAUTION_DELTA
-        flags["GAS_CRITICAL"]   = gas_delta   >= config.GAS_CRITICAL_DELTA
-        flags["TEMP_ELEVATED"]  = temp_delta  >= config.TEMP_ELEVATED_DELTA
-        flags["TEMP_CRITICAL"]  = temp_delta  >= config.TEMP_CRITICAL_DELTA
-        flags["HUMID_DROP"]     = humid_delta <= config.HUMID_DROP_DELTA
-        flags["HUMID_CRITICAL"] = humid_delta <= config.HUMID_CRITICAL_DELTA
+        if flags["FIRE_TEMP_CRITICAL"]:
+            fire_class = 3
+        elif flags["FIRE_TEMP_ELEVATED"] and flags["FIRE_HUMIDITY_DROPPING"]:
+            fire_class = 2
+        elif flags["FIRE_TEMP_ELEVATED"]:
+            fire_class = 1
 
-    # env_upgrade logic
-    env_upgrade = 0
-    if (flags["GAS_CRITICAL"]
-            or flags["TEMP_CRITICAL"]
-            or flags["HUMID_CRITICAL"]):
-        env_upgrade = 1
-    if flags["GAS_CAUTION"] and flags["TEMP_ELEVATED"]:  # compound
-        env_upgrade = max(env_upgrade, 1)
-
-    final_class = min(seismic_class + env_upgrade, 3)
-
-    # Standalone env trigger (no seismic event) → force at least class 2
-    if seismic_class == 0 and (flags["GAS_CRITICAL"] or flags["TEMP_CRITICAL"]):
-        final_class = max(final_class, 2)
+    final_class = max(seismic_class, fire_class)
+    if seismic_class > 0 and fire_class > 0:
+        alert_kind = "combined"
+    elif fire_class > 0:
+        alert_kind = "fire"
+    elif seismic_class > 0:
+        alert_kind = "earthquake"
+    else:
+        alert_kind = "all_clear"
 
     return HazardAssessment(
         timestamp=time.time(),
         seismic_class=seismic_class,
-        env_upgrade=env_upgrade,
+        fire_class=fire_class,
         final_class=final_class,
         Mpd=Mpd,
+        alert_kind=alert_kind,
         flags=flags,
     )

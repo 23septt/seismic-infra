@@ -85,6 +85,7 @@ class DashboardServer:
                 fsm_class  = state.get("fsm_class", 0)
             payload = {
                 "class":   fsm_class,
+                "kind":    assessment.alert_kind if assessment else "all_clear",
                 "Mpd":     assessment.Mpd if assessment else None,
                 "flags":   assessment.flags if assessment else {},
             }

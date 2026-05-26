@@ -6,7 +6,6 @@ ModulinoPixels pixels;
 ModulinoBuzzer buzzer;
 ModulinoThermo thermo;
 ModulinoMovement movement;
-ModulinoDistance distance;
 
 volatile bool pixelsPending = false;
 volatile bool buzzerPending = false;
@@ -20,7 +19,7 @@ volatile int pixelCount = 8;
 volatile int buzzerFrequency = 0;
 volatile int buzzerDuration = 0;
 
-const int MQ2_PIN = A0;
+const int DHT11_PIN = 2;
 
 void pixels_set_all(int r, int g, int b, int brightness, int count) {
   pixelR = constrain(r, 0, 255);
@@ -37,12 +36,45 @@ void buzzer_tone(int frequency, int duration) {
   buzzerPending = true;
 }
 
-String sensor_env() {
-  return String(thermo.getTemperature(), 3) + "," + String(thermo.getHumidity(), 3);
-}
+bool readDht11(float &temperatureC, float &humidityPct) {
+  uint8_t data[5] = {0, 0, 0, 0, 0};
 
-String sensor_mq2() {
-  return String(analogRead(MQ2_PIN));
+  pinMode(DHT11_PIN, OUTPUT);
+  digitalWrite(DHT11_PIN, LOW);
+  delay(20);
+  digitalWrite(DHT11_PIN, HIGH);
+  delayMicroseconds(40);
+  pinMode(DHT11_PIN, INPUT_PULLUP);
+
+  if (pulseIn(DHT11_PIN, LOW, 1000) == 0) {
+    return false;
+  }
+  if (pulseIn(DHT11_PIN, HIGH, 1000) == 0) {
+    return false;
+  }
+
+  for (int bit = 0; bit < 40; bit++) {
+    if (pulseIn(DHT11_PIN, LOW, 1000) == 0) {
+      return false;
+    }
+    unsigned long highTime = pulseIn(DHT11_PIN, HIGH, 1000);
+    if (highTime == 0) {
+      return false;
+    }
+    data[bit / 8] <<= 1;
+    if (highTime > 45) {
+      data[bit / 8] |= 1;
+    }
+  }
+
+  uint8_t checksum = data[0] + data[1] + data[2] + data[3];
+  if (checksum != data[4]) {
+    return false;
+  }
+
+  humidityPct = data[0] + data[1] * 0.1;
+  temperatureC = data[2] + data[3] * 0.1;
+  return true;
 }
 
 String sensor_accel() {
@@ -55,8 +87,15 @@ String sensor_accel() {
          String(movement.getYaw(), 6);
 }
 
-String sensor_distance() {
-  return String(distance.get(), 3);
+String sensor_env() {
+  float dhtTemp = NAN;
+  float dhtHumid = NAN;
+  readDht11(dhtTemp, dhtHumid);
+
+  return String(thermo.getTemperature(), 3) + "," +
+         String(thermo.getHumidity(), 3) + "," +
+         String(dhtTemp, 3) + "," +
+         String(dhtHumid, 3);
 }
 
 void applyPixels() {
@@ -86,15 +125,13 @@ void setup() {
   Modulino.begin();
   thermo.begin();
   movement.begin();
-  distance.begin();
   pixels.begin();
   buzzer.begin();
+  pinMode(DHT11_PIN, INPUT_PULLUP);
 
   Bridge.begin();
   Bridge.provide("sensor_env", sensor_env);
-  Bridge.provide("sensor_mq2", sensor_mq2);
   Bridge.provide("sensor_accel", sensor_accel);
-  Bridge.provide("sensor_distance", sensor_distance);
   Bridge.provide("pixels_set_all", pixels_set_all);
   Bridge.provide("buzzer_tone", buzzer_tone);
   Bridge.notify("mcu_status", "seismoguard_bridge_ready");
