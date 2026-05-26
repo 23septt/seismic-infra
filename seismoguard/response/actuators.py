@@ -1,6 +1,4 @@
 import logging
-import os
-import subprocess
 import threading
 import time
 from typing import Optional
@@ -152,38 +150,6 @@ class ServoController:
             self._set(config.SERVO2_PWM_CHIP, config.SERVO2_PWM_CH, config.SERVO_DEPLOY_US)
 
 
-class AudioController:
-    """Plays pre-recorded WAV files via aplay (non-blocking)."""
-
-    def __init__(self):
-        self._proc: Optional[subprocess.Popen] = None
-
-    def _wav_path(self, alert_class: int) -> Optional[str]:
-        filename = config.AUDIO_FILES.get(alert_class)
-        if not filename:
-            return None
-        return os.path.join(config.AUDIO_DIR, filename)
-
-    def play(self, alert_class: int) -> None:
-        path = self._wav_path(alert_class)
-        if not path or not os.path.exists(path):
-            log.debug("Audio file missing for class %d: %s", alert_class, path)
-            return
-        # Kill previous if still running
-        if self._proc and self._proc.poll() is None:
-            return  # already playing
-        try:
-            self._proc = subprocess.Popen(
-                ['aplay', '-q', path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            log.warning("aplay not found — audio disabled")
-        except Exception as e:
-            log.error("Audio play error: %s", e)
-
-
 class ActuatorController:
     """Facade that coordinates all actuators for a given alert class."""
 
@@ -191,12 +157,9 @@ class ActuatorController:
         self._pixels  = PixelController(board)
         self._buzzer  = BuzzerController(board)
         self._servos  = ServoController(board)
-        self._audio   = AudioController()
 
     def apply(self, alert_class: int) -> None:
         log.info("Actuators → class %d", alert_class)
         self._pixels.apply(alert_class)
         self._buzzer.apply(alert_class)
         self._servos.apply(alert_class)
-        if alert_class > 0:
-            self._audio.play(alert_class)
